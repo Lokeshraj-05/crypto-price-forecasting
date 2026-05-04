@@ -1,9 +1,27 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid,
-  Tooltip, Legend, ResponsiveContainer, Brush
+  Tooltip, ResponsiveContainer, Brush
 } from 'recharts';
 import './PriceChart.css';
+
+const fmt = (v) => v?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+const CustomTooltip = ({ active, payload, visibility }) => {
+  if (!active || !payload || !payload.length) return null;
+  const d = payload[0].payload;
+  return (
+    <div className="custom-tooltip">
+      <p className="tooltip-time">{d.fullTime}</p>
+      {visibility.actual   && <p className="tooltip-actual">   <span className="tooltip-label">Actual:</span>   <span className="tooltip-value" style={{color:'#00ffff'}}>${fmt(d.actual)}</span></p>}
+      {visibility.ensemble && <p className="tooltip-predicted"><span className="tooltip-label">Ensemble:</span> <span className="tooltip-value" style={{color:'#ff00ff'}}>${fmt(d.ensemble)}</span></p>}
+      {visibility.lr   && d.lr   && <p className="tooltip-predicted"><span className="tooltip-label">LR:</span>   <span className="tooltip-value" style={{color:'#0080ff'}}>${fmt(d.lr)}</span></p>}
+      {visibility.ema  && d.ema  && <p className="tooltip-predicted"><span className="tooltip-label">EMA:</span>  <span className="tooltip-value" style={{color:'#ffff00'}}>${fmt(d.ema)}</span></p>}
+      {visibility.lstm && d.lstm && <p className="tooltip-predicted"><span className="tooltip-label">LSTM:</span> <span className="tooltip-value" style={{color:'#00ff00'}}>${fmt(d.lstm)}</span></p>}
+      <p className="tooltip-error"><span className="tooltip-label">Error:</span><span className="tooltip-value" style={{color:'#ff8800'}}>${fmt(d.error)}</span></p>
+    </div>
+  );
+};
 
 const PriceChart = ({ data }) => {
   const [showActual,   setShowActual]   = useState(true);
@@ -12,7 +30,11 @@ const PriceChart = ({ data }) => {
   const [showEMA,      setShowEMA]      = useState(true);
   const [showLSTM,     setShowLSTM]     = useState(true);
 
-  const chartData = data.slice().reverse().map(item => ({
+  const visibility = useMemo(() => ({
+    actual: showActual, ensemble: showEnsemble, lr: showLR, ema: showEMA, lstm: showLSTM
+  }), [showActual, showEnsemble, showLR, showEMA, showLSTM]);
+
+  const chartData = useMemo(() => data.slice().reverse().map(item => ({
     timestamp: new Date(item.timestamp).toLocaleTimeString(),
     fullTime:  new Date(item.timestamp).toLocaleString(),
     actual:    parseFloat(item.actual_price),
@@ -21,25 +43,12 @@ const PriceChart = ({ data }) => {
     ema:       item.ema_prediction  != null ? parseFloat(item.ema_prediction)  : null,
     lstm:      item.lstm_prediction != null ? parseFloat(item.lstm_prediction) : null,
     error:     Math.abs(parseFloat(item.error || 0)),
-  }));
+  })), [data]);
 
-  const fmt = (v) => v?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
-  const CustomTooltip = ({ active, payload }) => {
-    if (!active || !payload || !payload.length) return null;
-    const d = payload[0].payload;
-    return (
-      <div className="custom-tooltip">
-        <p className="tooltip-time">{d.fullTime}</p>
-        {showActual   && <p className="tooltip-actual">   <span className="tooltip-label">Actual:</span>   <span className="tooltip-value" style={{color:'#00ffff'}}>${fmt(d.actual)}</span></p>}
-        {showEnsemble && <p className="tooltip-predicted"><span className="tooltip-label">Ensemble:</span> <span className="tooltip-value" style={{color:'#ff00ff'}}>${fmt(d.ensemble)}</span></p>}
-        {showLR       && d.lr   && <p className="tooltip-predicted"><span className="tooltip-label">LR:</span>   <span className="tooltip-value" style={{color:'#0080ff'}}>${fmt(d.lr)}</span></p>}
-        {showEMA      && d.ema  && <p className="tooltip-predicted"><span className="tooltip-label">EMA:</span>  <span className="tooltip-value" style={{color:'#ffff00'}}>${fmt(d.ema)}</span></p>}
-        {showLSTM     && d.lstm && <p className="tooltip-predicted"><span className="tooltip-label">LSTM:</span> <span className="tooltip-value" style={{color:'#00ff00'}}>${fmt(d.lstm)}</span></p>}
-        <p className="tooltip-error"><span className="tooltip-label">Error:</span><span className="tooltip-value" style={{color:'#ff8800'}}>${fmt(d.error)}</span></p>
-      </div>
-    );
-  };
+  const renderTooltip = useCallback(
+    (props) => <CustomTooltip {...props} visibility={visibility} />,
+    [visibility]
+  );
 
   const toggles = [
     { label: 'Actual',    active: showActual,   set: setShowActual,   color: '#00ffff' },
@@ -72,8 +81,8 @@ const PriceChart = ({ data }) => {
       </div>
 
       <div className="chart-wrapper">
-        <ResponsiveContainer width="100%" height={500}>
-          <LineChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 60 }}>
+        <ResponsiveContainer width="100%" height={520}>
+          <LineChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 10 }}>
             <defs>
               <filter id="glow">
                 <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
@@ -85,41 +94,39 @@ const PriceChart = ({ data }) => {
             </defs>
 
             <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,255,255,0.08)" vertical={false} />
-            <XAxis dataKey="timestamp" stroke="#a0a0b0" tick={{ fill: '#a0a0b0', fontSize: 11 }} angle={-45} textAnchor="end" height={80} />
-            <YAxis stroke="#a0a0b0" tick={{ fill: '#a0a0b0', fontSize: 11 }} tickFormatter={v => `$${v.toLocaleString()}`} />
-            <Tooltip content={<CustomTooltip />} />
-            <Legend wrapperStyle={{ paddingTop: '20px' }} iconType="line"
-              formatter={v => <span style={{ color: '#ccc', fontSize: '13px' }}>{v}</span>} />
+            <XAxis dataKey="timestamp" stroke="#a0a0b0" tick={{ fill: '#a0a0b0', fontSize: 11 }} angle={-35} textAnchor="end" height={60} interval="preserveStartEnd" />
+            <YAxis stroke="#a0a0b0" tick={{ fill: '#a0a0b0', fontSize: 11 }} tickFormatter={v => `$${v.toLocaleString()}`} width={90} />
+            <Tooltip content={renderTooltip} />
 
             {showActual && (
               <Line type="monotone" dataKey="actual" stroke="#00ffff" strokeWidth={3}
-                dot={{ fill: '#00ffff', r: 3, stroke: '#0a0a0f', strokeWidth: 1 }}
+                dot={false}
                 activeDot={{ r: 6, fill: '#00ffff', stroke: '#fff', strokeWidth: 2 }}
-                name="Actual" filter="url(#glow)" />
+                name="Actual" filter="url(#glow)" isAnimationActive={false} />
             )}
             {showEnsemble && (
-              <Line type="monotone" dataKey="ensemble" stroke="#ff00ff" strokeWidth={3} strokeDasharray="6 3"
-                dot={{ fill: '#ff00ff', r: 3, stroke: '#0a0a0f', strokeWidth: 1 }}
+              <Line type="monotone" dataKey="ensemble" stroke="#ff00ff" strokeWidth={2} strokeDasharray="6 3"
+                dot={false}
                 activeDot={{ r: 6, fill: '#ff00ff', stroke: '#fff', strokeWidth: 2 }}
-                name="Ensemble" filter="url(#glow)" />
+                name="Ensemble" filter="url(#glow)" isAnimationActive={false} />
             )}
             {showLR && (
-              <Line type="monotone" dataKey="lr" stroke="#0080ff" strokeWidth={2} strokeDasharray="4 4"
-                dot={{ fill: '#0080ff', r: 2 }} activeDot={{ r: 5, fill: '#0080ff' }}
-                name="Linear Reg" connectNulls={true} />
+              <Line type="monotone" dataKey="lr" stroke="#0080ff" strokeWidth={1.5} strokeDasharray="4 4"
+                dot={false} activeDot={{ r: 5, fill: '#0080ff' }}
+                name="Linear Reg" isAnimationActive={false} />
             )}
             {showEMA && (
-              <Line type="monotone" dataKey="ema" stroke="#ffff00" strokeWidth={2} strokeDasharray="4 4"
-                dot={{ fill: '#ffff00', r: 2 }} activeDot={{ r: 5, fill: '#ffff00' }}
-                name="EMA" connectNulls={true} />
+              <Line type="monotone" dataKey="ema" stroke="#ffff00" strokeWidth={1.5} strokeDasharray="4 4"
+                dot={false} activeDot={{ r: 5, fill: '#ffff00' }}
+                name="EMA" isAnimationActive={false} />
             )}
             {showLSTM && (
-              <Line type="monotone" dataKey="lstm" stroke="#00ff00" strokeWidth={2} strokeDasharray="4 4"
-                dot={{ fill: '#00ff00', r: 2 }} activeDot={{ r: 5, fill: '#00ff00' }}
-                name="LSTM" connectNulls={true} />
+              <Line type="monotone" dataKey="lstm" stroke="#00ff00" strokeWidth={1.5} strokeDasharray="4 4"
+                dot={false} activeDot={{ r: 5, fill: '#00ff00' }}
+                name="LSTM" isAnimationActive={false} />
             )}
 
-            <Brush dataKey="timestamp" height={28} stroke="#00ffff" fill="rgba(0,255,255,0.07)" travellerWidth={8} />
+            <Brush dataKey="timestamp" height={24} stroke="#00ffff44" fill="rgba(0,255,255,0.05)" travellerWidth={8} y={460} />
           </LineChart>
         </ResponsiveContainer>
       </div>

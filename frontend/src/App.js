@@ -12,8 +12,10 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [lastUpdate, setLastUpdate] = useState(null);
   const [isOnline, setIsOnline] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const fetchData = async () => {
+  const fetchData = async (manual = false) => {
+    if (manual) setRefreshing(true);
     try {
       const [pricesRes, metricsRes] = await Promise.all([
         axios.get(`${API_URL}/prices?limit=100`),
@@ -28,6 +30,8 @@ function App() {
       console.error('Error fetching data:', error);
       setIsOnline(false);
       setLoading(false);
+    } finally {
+      setRefreshing(false);
     }
   };
 
@@ -62,9 +66,17 @@ function App() {
             </div>
           </div>
           <div className="status-section">
-            <div className={`status-indicator ${isOnline ? 'online' : 'offline'}`}>
-              <span className="status-dot"></span>
-              <span className="status-text">{isOnline ? 'ONLINE' : 'OFFLINE'}</span>
+            <div className="status-top-row">
+              <div className={`status-indicator ${isOnline ? 'online' : 'offline'}`}>
+                <span className="status-dot"></span>
+                <span className="status-text">{isOnline ? 'ONLINE' : 'OFFLINE'}</span>
+              </div>
+              <button
+                className={`refresh-btn ${refreshing ? 'spinning' : ''}`}
+                onClick={() => fetchData(true)}
+                disabled={refreshing}
+                title="Refresh data"
+              >⟳</button>
             </div>
             {lastUpdate && (
               <div className="last-update">

@@ -237,6 +237,42 @@ body {
   color: var(--text-secondary);
 }
 
+.status-top-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.refresh-btn {
+  background: rgba(0,255,255,0.08);
+  border: 1px solid rgba(0,255,255,0.4);
+  border-radius: 50%;
+  color: var(--neon-cyan);
+  width: 32px;
+  height: 32px;
+  font-size: 1.1rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  line-height: 1;
+}
+
+.refresh-btn:hover:not(:disabled) {
+  background: rgba(0,255,255,0.2);
+  box-shadow: 0 0 10px rgba(0,255,255,0.4);
+}
+
+.refresh-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.refresh-btn.spinning {
+  animation: spin 0.8s linear infinite;
+}
+
 /* Container */
 .container {
   max-width: 1400px;
