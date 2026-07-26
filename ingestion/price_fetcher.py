@@ -7,8 +7,14 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from apscheduler.schedulers.blocking import BlockingScheduler
 
-CMC_API_KEY = 'a14d93dd-3ecc-4259-816c-68e07df609f2'
-DB_PATH = 'crypto_data.db'
+import os
+
+CMC_API_KEY = os.getenv("CMC_API_KEY")
+BASE_DIR = os.path.dirname(
+    os.path.dirname(os.path.abspath(__file__))
+)
+
+DB_PATH = os.path.join(BASE_DIR, "crypto_data.db")
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
