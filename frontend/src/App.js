@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import PriceChart from './components/PriceChart';
 import MetricsCard from './components/MetricsCard';
+import ErrorTrend from './components/ErrorTrend';
+import PredictionsTable from './components/PredictionsTable';
 import './App.css';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
@@ -37,7 +39,7 @@ function App() {
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 300000); // 5 minutes
+    const interval = setInterval(fetchData, 300000);
     return () => clearInterval(interval);
   }, []);
 
@@ -45,31 +47,28 @@ function App() {
     return (
       <div className="loading-screen">
         <div className="loading-spinner"></div>
-        <div className="loading-text">INITIALIZING CRYPTO FORECASTING SYSTEM</div>
-        <div className="loading-subtext">Connecting to neural network...</div>
+        <div className="loading-text">Initializing Analytics Engine</div>
+        <div className="loading-subtext">Connecting to data pipeline…</div>
       </div>
     );
   }
 
   return (
     <div className="App">
-      <div className="cyber-grid"></div>
-      <div className="neon-overlay"></div>
-      
       <header className="App-header">
         <div className="header-content">
           <div className="logo-section">
             <div className="logo-icon">₿</div>
             <div className="title-group">
-              <h1 className="glitch" data-text="CRYPTO FORECASTER">CRYPTO FORECASTER</h1>
-              <p className="subtitle">AI-POWERED PREDICTION SYSTEM</p>
+              <h1>Crypto Forecaster</h1>
+              <p className="subtitle">AI-Powered Prediction System · BTC/USD</p>
             </div>
           </div>
           <div className="status-section">
             <div className="status-top-row">
               <div className={`status-indicator ${isOnline ? 'online' : 'offline'}`}>
                 <span className="status-dot"></span>
-                <span className="status-text">{isOnline ? 'ONLINE' : 'OFFLINE'}</span>
+                <span>{isOnline ? 'ONLINE' : 'OFFLINE'}</span>
               </div>
               <button
                 className={`refresh-btn ${refreshing ? 'spinning' : ''}`}
@@ -80,18 +79,24 @@ function App() {
             </div>
             {lastUpdate && (
               <div className="last-update">
-                Last Update: {lastUpdate.toLocaleTimeString()}
+                Updated {lastUpdate.toLocaleTimeString()}
               </div>
             )}
           </div>
         </div>
       </header>
-      
+
       <div className="container">
         <MetricsCard metrics={metrics} />
+        {prices.length > 0 && (
+          <ErrorTrend data={prices} metrics={metrics} />
+        )}
         <PriceChart data={prices} />
+        {prices.length > 0 && (
+          <PredictionsTable data={prices} />
+        )}
       </div>
-      
+
       <footer className="footer">
         <div className="footer-content">
           <span>Powered by Machine Learning</span>

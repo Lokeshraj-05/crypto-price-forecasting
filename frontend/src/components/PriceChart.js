@@ -1,27 +1,64 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useRef } from 'react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, Brush
+  Tooltip, ResponsiveContainer, Brush, ReferenceLine
 } from 'recharts';
 import './PriceChart.css';
 
+const COLORS = {
+  actual:   '#06B6D4',
+  ensemble: '#EC4899',
+  lr:       '#3B82F6',
+  ema:      '#22C55E',
+  lstm:     '#8B5CF6',
+};
+
 const fmt = (v) => v?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+/* Short time label: "3:40 PM" */
+const shortTime = (ts) => {
+  try {
+    return new Date(ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  } catch { return ts; }
+};
+
+/* ── Bloomberg-style Tooltip ── */
 const CustomTooltip = ({ active, payload, visibility }) => {
   if (!active || !payload || !payload.length) return null;
   const d = payload[0].payload;
+  const rows = [
+    { key: 'actual',   label: 'Actual',           show: visibility.actual,                    val: d.actual,   color: COLORS.actual   },
+    { key: 'ensemble', label: 'Ensemble',          show: visibility.ensemble,                  val: d.ensemble, color: COLORS.ensemble },
+    { key: 'lr',       label: 'Linear Regression', show: visibility.lr   && d.lr   != null,    val: d.lr,       color: COLORS.lr       },
+    { key: 'ema',      label: 'EMA',               show: visibility.ema  && d.ema  != null,    val: d.ema,      color: COLORS.ema      },
+    { key: 'lstm',     label: 'LSTM',              show: visibility.lstm && d.lstm != null,    val: d.lstm,     color: COLORS.lstm     },
+    { key: 'error',    label: 'Prediction Error',  show: true,                                 val: d.error,    color: '#F59E0B'       },
+  ];
   return (
     <div className="custom-tooltip">
-      <p className="tooltip-time">{d.fullTime}</p>
-      {visibility.actual   && <p className="tooltip-actual">   <span className="tooltip-label">Actual:</span>   <span className="tooltip-value" style={{color:'#00ffff'}}>${fmt(d.actual)}</span></p>}
-      {visibility.ensemble && <p className="tooltip-predicted"><span className="tooltip-label">Ensemble:</span> <span className="tooltip-value" style={{color:'#ff00ff'}}>${fmt(d.ensemble)}</span></p>}
-      {visibility.lr   && d.lr   && <p className="tooltip-predicted"><span className="tooltip-label">LR:</span>   <span className="tooltip-value" style={{color:'#0080ff'}}>${fmt(d.lr)}</span></p>}
-      {visibility.ema  && d.ema  && <p className="tooltip-predicted"><span className="tooltip-label">EMA:</span>  <span className="tooltip-value" style={{color:'#ffff00'}}>${fmt(d.ema)}</span></p>}
-      {visibility.lstm && d.lstm && <p className="tooltip-predicted"><span className="tooltip-label">LSTM:</span> <span className="tooltip-value" style={{color:'#00ff00'}}>${fmt(d.lstm)}</span></p>}
-      <p className="tooltip-error"><span className="tooltip-label">Error:</span><span className="tooltip-value" style={{color:'#ff8800'}}>${fmt(d.error)}</span></p>
+      <div className="tooltip-header">{d.fullTime}</div>
+      <div className="tooltip-divider"/>
+      <div className="tooltip-rows">
+        {rows.filter(r => r.show).map(r => (
+          <div className="tooltip-row" key={r.key}>
+            <span className="tooltip-dot" style={{ background: r.color }}/>
+            <span className="tooltip-label">{r.label}</span>
+            <span className="tooltip-value mono" style={{ color: r.color }}>${fmt(r.val)}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 };
+
+/* ── Custom Brush Traveller (rounded blue handle) ── */
+const BrushHandle = ({ x, y, width, height }) => (
+  <g>
+    <rect x={x} y={y + 2} width={width} height={height - 4} rx={4} ry={4} fill="#3B82F6" stroke="none"/>
+    <line x1={x + width / 2 - 2} y1={y + 8} x2={x + width / 2 - 2} y2={y + height - 8} stroke="rgba(255,255,255,0.5)" strokeWidth={1.5} strokeLinecap="round"/>
+    <line x1={x + width / 2 + 2} y1={y + 8} x2={x + width / 2 + 2} y2={y + height - 8} stroke="rgba(255,255,255,0.5)" strokeWidth={1.5} strokeLinecap="round"/>
+  </g>
+);
 
 const PriceChart = ({ data }) => {
   const [showActual,   setShowActual]   = useState(true);
@@ -29,13 +66,15 @@ const PriceChart = ({ data }) => {
   const [showLR,       setShowLR]       = useState(true);
   const [showEMA,      setShowEMA]      = useState(true);
   const [showLSTM,     setShowLSTM]     = useState(true);
+  const [brushRange,   setBrushRange]   = useState(null);
+  const lastClickRef = useRef(0);
 
   const visibility = useMemo(() => ({
     actual: showActual, ensemble: showEnsemble, lr: showLR, ema: showEMA, lstm: showLSTM
   }), [showActual, showEnsemble, showLR, showEMA, showLSTM]);
 
   const chartData = useMemo(() => data.slice().reverse().map(item => ({
-    timestamp: new Date(item.timestamp).toLocaleTimeString(),
+    timestamp: shortTime(item.timestamp),
     fullTime:  new Date(item.timestamp).toLocaleString(),
     actual:    parseFloat(item.actual_price),
     ensemble:  parseFloat(item.predicted_price),
@@ -50,94 +89,133 @@ const PriceChart = ({ data }) => {
     [visibility]
   );
 
+  /* Double-click resets zoom */
+  const handleDoubleClick = useCallback(() => {
+    setBrushRange(null);
+  }, []);
+
+  const handleChartClick = useCallback(() => {
+    const now = Date.now();
+    if (now - lastClickRef.current < 350) handleDoubleClick();
+    lastClickRef.current = now;
+  }, [handleDoubleClick]);
+
+  /* Auto-space X-axis: show ~8 labels max */
+  const xInterval = useMemo(() => {
+    const len = brushRange
+      ? brushRange.endIndex - brushRange.startIndex
+      : chartData.length;
+    return Math.max(1, Math.floor(len / 8));
+  }, [chartData.length, brushRange]);
+
   const toggles = [
-    { label: 'Actual',    active: showActual,   set: setShowActual,   color: '#00ffff' },
-    { label: 'Ensemble',  active: showEnsemble, set: setShowEnsemble, color: '#ff00ff' },
-    { label: 'LR',        active: showLR,       set: setShowLR,       color: '#0080ff' },
-    { label: 'EMA',       active: showEMA,      set: setShowEMA,      color: '#ffff00' },
-    { label: 'LSTM',      active: showLSTM,     set: setShowLSTM,     color: '#00ff00' },
+    { label: 'Actual',   active: showActual,   set: setShowActual,   color: COLORS.actual   },
+    { label: 'Ensemble', active: showEnsemble, set: setShowEnsemble, color: COLORS.ensemble },
+    { label: 'LR',       active: showLR,       set: setShowLR,       color: COLORS.lr       },
+    { label: 'EMA',      active: showEMA,      set: setShowEMA,      color: COLORS.ema      },
+    { label: 'LSTM',     active: showLSTM,     set: setShowLSTM,     color: COLORS.lstm     },
   ];
 
   return (
     <div className="chart-container">
       <div className="chart-header">
         <div className="chart-title-section">
-          <h2 className="chart-title">PRICE ANALYSIS</h2>
-          <div className="chart-subtitle">Hybrid Model — EMA + Linear Regression + LSTM</div>
+          <h2 className="chart-title">Price Analysis</h2>
+          <div className="chart-subtitle">Hybrid Model — EMA · Linear Regression · LSTM</div>
         </div>
         <div className="chart-controls">
           {toggles.map(t => (
             <button
               key={t.label}
               className={`toggle-btn ${t.active ? 'active' : ''}`}
-              style={t.active ? { borderColor: t.color, color: t.color, boxShadow: `0 0 10px ${t.color}55` } : {}}
-              onClick={() => t.set(!t.active)}
+              style={t.active ? { '--btn-color': t.color } : {}}
+              onClick={() => t.set(v => !v)}
             >
-              <span className="btn-indicator" style={{ background: t.color, boxShadow: `0 0 6px ${t.color}` }}></span>
+              <span className="btn-dot" style={{ background: t.color }}/>
               {t.label}
             </button>
           ))}
         </div>
       </div>
 
-      <div className="chart-wrapper">
-        <ResponsiveContainer width="100%" height={520}>
-          <LineChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 10 }}>
-            <defs>
-              <filter id="glow">
-                <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
-                <feMerge>
-                  <feMergeNode in="coloredBlur"/>
-                  <feMergeNode in="SourceGraphic"/>
-                </feMerge>
-              </filter>
-            </defs>
-
-            <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,255,255,0.08)" vertical={false} />
-            <XAxis dataKey="timestamp" stroke="#a0a0b0" tick={{ fill: '#a0a0b0', fontSize: 11 }} angle={-35} textAnchor="end" height={60} interval="preserveStartEnd" />
-            <YAxis stroke="#a0a0b0" tick={{ fill: '#a0a0b0', fontSize: 11 }} tickFormatter={v => `$${v.toLocaleString()}`} width={90} />
-            <Tooltip content={renderTooltip} />
+      <div className="chart-wrapper" onClick={handleChartClick}>
+        <ResponsiveContainer width="100%" height={560}>
+          <LineChart
+            data={chartData}
+            margin={{ top: 16, right: 24, left: 8, bottom: 16 }}
+          >
+            <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.07)" vertical={false}/>
+            <XAxis
+              dataKey="timestamp"
+              stroke="#334155"
+              tick={{ fill: '#64748B', fontSize: 11, fontFamily: 'JetBrains Mono' }}
+              tickLine={false}
+              axisLine={{ stroke: '#334155' }}
+              height={40}
+              interval={xInterval}
+            />
+            <YAxis
+              stroke="#334155"
+              tick={{ fill: '#64748B', fontSize: 11, fontFamily: 'JetBrains Mono' }}
+              tickLine={false}
+              axisLine={false}
+              tickFormatter={v => `$${v.toLocaleString()}`}
+              width={88}
+            />
+            <Tooltip
+              content={renderTooltip}
+              cursor={{ stroke: 'rgba(148,163,184,0.25)', strokeWidth: 1, strokeDasharray: '4 3' }}
+            />
 
             {showActual && (
-              <Line type="monotone" dataKey="actual" stroke="#00ffff" strokeWidth={3}
-                dot={false}
-                activeDot={{ r: 6, fill: '#00ffff', stroke: '#fff', strokeWidth: 2 }}
-                name="Actual" filter="url(#glow)" isAnimationActive={false} />
+              <Line type="monotone" dataKey="actual" stroke={COLORS.actual} strokeWidth={2.5}
+                dot={false} activeDot={{ r: 6, fill: COLORS.actual, stroke: '#0B1120', strokeWidth: 2 }}
+                name="Actual" isAnimationActive={true} animationDuration={900} animationEasing="ease-out"/>
             )}
             {showEnsemble && (
-              <Line type="monotone" dataKey="ensemble" stroke="#ff00ff" strokeWidth={2} strokeDasharray="6 3"
-                dot={false}
-                activeDot={{ r: 6, fill: '#ff00ff', stroke: '#fff', strokeWidth: 2 }}
-                name="Ensemble" filter="url(#glow)" isAnimationActive={false} />
+              <Line type="monotone" dataKey="ensemble" stroke={COLORS.ensemble} strokeWidth={2} strokeDasharray="6 3"
+                dot={false} activeDot={{ r: 6, fill: COLORS.ensemble, stroke: '#0B1120', strokeWidth: 2 }}
+                name="Ensemble" isAnimationActive={false}/>
             )}
             {showLR && (
-              <Line type="monotone" dataKey="lr" stroke="#0080ff" strokeWidth={1.5} strokeDasharray="4 4"
-                dot={false} activeDot={{ r: 5, fill: '#0080ff' }}
-                name="Linear Reg" isAnimationActive={false} />
+              <Line type="monotone" dataKey="lr" stroke={COLORS.lr} strokeWidth={1.5} strokeDasharray="4 4"
+                dot={false} activeDot={{ r: 5, fill: COLORS.lr, stroke: '#0B1120', strokeWidth: 2 }}
+                name="Linear Reg" isAnimationActive={false}/>
             )}
             {showEMA && (
-              <Line type="monotone" dataKey="ema" stroke="#ffff00" strokeWidth={1.5} strokeDasharray="4 4"
-                dot={false} activeDot={{ r: 5, fill: '#ffff00' }}
-                name="EMA" isAnimationActive={false} />
+              <Line type="monotone" dataKey="ema" stroke={COLORS.ema} strokeWidth={1.5} strokeDasharray="4 4"
+                dot={false} activeDot={{ r: 5, fill: COLORS.ema, stroke: '#0B1120', strokeWidth: 2 }}
+                name="EMA" isAnimationActive={false}/>
             )}
             {showLSTM && (
-              <Line type="monotone" dataKey="lstm" stroke="#00ff00" strokeWidth={1.5} strokeDasharray="4 4"
-                dot={false} activeDot={{ r: 5, fill: '#00ff00' }}
-                name="LSTM" isAnimationActive={false} />
+              <Line type="monotone" dataKey="lstm" stroke={COLORS.lstm} strokeWidth={1.5} strokeDasharray="4 4"
+                dot={false} activeDot={{ r: 5, fill: COLORS.lstm, stroke: '#0B1120', strokeWidth: 2 }}
+                name="LSTM" isAnimationActive={false}/>
             )}
 
-            <Brush dataKey="timestamp" height={24} stroke="#00ffff44" fill="rgba(0,255,255,0.05)" travellerWidth={8} y={460} />
+            <Brush
+              dataKey="timestamp"
+              height={24}
+              stroke="rgba(148,163,184,0.15)"
+              fill="#131f2e"
+              travellerWidth={12}
+              traveller={<BrushHandle />}
+              onChange={(range) => setBrushRange(range)}
+              startIndex={brushRange?.startIndex}
+              endIndex={brushRange?.endIndex}
+            />
           </LineChart>
         </ResponsiveContainer>
       </div>
 
       <div className="chart-info">
-        <div className="info-item">
-          <span className="info-text">Toggle individual models to compare | Brush to zoom</span>
-        </div>
-        <div className="info-item">
-          <span className="info-text">Ensemble = weighted average of all 3 models</span>
-        </div>
+        <span>Toggle models to compare</span>
+        <span className="info-sep">·</span>
+        <span>Drag brush to zoom</span>
+        <span className="info-sep">·</span>
+        <span>Double-click to reset zoom</span>
+        <span className="info-sep">·</span>
+        <span>Ensemble = weighted average of all 3 models</span>
       </div>
     </div>
   );
