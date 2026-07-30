@@ -330,7 +330,7 @@ def get_prices(limit: int = 100):
         result = []
         for r in rows:
             row = dict(r)
-            row['model_weights'] = json.loads(r['model_weights']) if r['model_weights'] else {}
+            row['model_weights'] = r['model_weights'] if r['model_weights'] else {}            
             result.append(row)
         return {"count": len(result), "data": result}
     except Exception as e:
@@ -364,8 +364,7 @@ def get_metrics():
         # Latest weights
         c.execute('SELECT model_weights FROM predictions WHERE model_weights IS NOT NULL ORDER BY timestamp DESC LIMIT 1')
         w_row = c.fetchone()
-        weights = json.loads(w_row['model_weights']) if w_row else {"lr": 0.33, "ema": 0.33, "lstm": 0.34}
-
+        weights = (w_row["model_weights"]if w_row and w_row["model_weights"]else {"lr": 0.33, "ema": 0.33, "lstm": 0.34})
         conn.close()
 
         if not r or r['count'] == 0:
@@ -405,7 +404,7 @@ def get_model_weights():
         for r in rows:
             result.append({
                 "timestamp":      r['timestamp'],
-                "weights":        json.loads(r['model_weights']),
+                "weights":        r["model_weights"],
                 "lr_pred":        r['lr_prediction'],
                 "ema_pred":       r['ema_prediction'],
                 "lstm_pred":      r['lstm_prediction'],
