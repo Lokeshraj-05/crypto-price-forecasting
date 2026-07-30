@@ -2,8 +2,10 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-RUN pip install --no-cache-dir requests kafka-python APScheduler urllib3
+COPY ingestion/requirements.txt .
 
-COPY ingestion/price_fetcher.py .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY ingestion/ .
 
 CMD ["python", "price_fetcher.py"]
