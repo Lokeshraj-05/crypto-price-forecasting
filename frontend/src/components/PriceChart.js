@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useCallback, useRef } from 'react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, Brush, ReferenceLine
+  Tooltip, ResponsiveContainer, Brush, 
 } from 'recharts';
 import './PriceChart.css';
 

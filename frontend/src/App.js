@@ -6,7 +6,6 @@ import ErrorTrend from './components/ErrorTrend';
 import PredictionsTable from './components/PredictionsTable';
 import './App.css';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
 function App() {
   const [prices, setPrices] = useState([]);
@@ -15,27 +14,30 @@ function App() {
   const [lastUpdate, setLastUpdate] = useState(null);
   const [isOnline, setIsOnline] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const API = process.env.REACT_APP_API_URL || "http://localhost:8000";
 
   const fetchData = async (manual = false) => {
-    if (manual) setRefreshing(true);
-    try {
-      const [pricesRes, metricsRes] = await Promise.all([
-        axios.get(`${API_URL}/prices?limit=100`),
-        axios.get(`${API_URL}/metrics`)
-      ]);
-      setPrices(pricesRes.data.data);
-      setMetrics(metricsRes.data);
-      setLoading(false);
-      setLastUpdate(new Date());
-      setIsOnline(true);
-    } catch (error) {
-      console.error('Error fetching data:', error);
-      setIsOnline(false);
-      setLoading(false);
-    } finally {
-      setRefreshing(false);
-    }
-  };
+  if (manual) setRefreshing(true);
+
+  try {
+    const [pricesRes, metricsRes] = await Promise.all([
+      axios.get(`${API}/prices?limit=100`),
+      axios.get(`${API}/metrics`)
+    ]);
+
+    setPrices(pricesRes.data.data);
+    setMetrics(metricsRes.data);
+    setLoading(false);
+    setLastUpdate(new Date());
+    setIsOnline(true);
+  } catch (error) {
+    console.error("Error fetching data:", error);
+    setIsOnline(false);
+    setLoading(false);
+  } finally {
+    setRefreshing(false);
+  }
+};
 
   useEffect(() => {
     fetchData();
