@@ -1,9 +1,15 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-import sqlite3
+import psycopg2
+from psycopg2.extras import RealDictCursor
+from dotenv import load_dotenv
 import os
 import json
 import numpy as np
+from psycopg2.extras import Json
+from psycopg2.extras import RealDictCursor, Json
+
+load_dotenv()
 
 app = FastAPI(title="Crypto Forecasting API - Hybrid Model")
 
@@ -15,56 +21,27 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DB_PATH = os.path.join(BASE_DIR, 'crypto_data.db')
+DB_HOST = os.getenv("DB_HOST")
+DB_PORT = os.getenv("DB_PORT")
+DB_NAME = os.getenv("DB_NAME")
+DB_USER = os.getenv("DB_USER")
+DB_PASSWORD = os.getenv("DB_PASSWORD")
 
 # ─────────────────────────────────────────────────────
 # DATABASE
 # ─────────────────────────────────────────────────────
 
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+    return psycopg2.connect(
+        host=DB_HOST,
+        port=DB_PORT,
+        database=DB_NAME,
+        user=DB_USER,
+        password=DB_PASSWORD,
+        cursor_factory=RealDictCursor
+    )
 
-def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS raw_prices (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp TEXT NOT NULL,
-            price REAL NOT NULL,
-            volume_24h REAL,
-            market_cap REAL,
-            percent_change_1h REAL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    # Check if predictions table has the new columns — if not, drop and recreate
-    c.execute("PRAGMA table_info(predictions)")
-    cols = [row[1] for row in c.fetchall()]
-    if cols and 'lr_prediction' not in cols:
-        c.execute('DROP TABLE predictions')
-        cols = []
-    if not cols:
-        c.execute('''
-            CREATE TABLE predictions (
-                timestamp TEXT PRIMARY KEY,
-                actual_price REAL NOT NULL,
-                predicted_price REAL NOT NULL,
-                lr_prediction REAL,
-                ema_prediction REAL,
-                lstm_prediction REAL,
-                error REAL NOT NULL,
-                abs_error REAL NOT NULL,
-                percentage_error REAL NOT NULL,
-                model_weights TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-    conn.commit()
-    conn.close()
+# Database already initialized in Supabase
 
 # ─────────────────────────────────────────────────────
 # MODEL 1: EMA (Exponential Moving Average)
@@ -280,18 +257,38 @@ def run_predictions():
         pct_error = (abs_error / actual) * 100
 
         c.execute('''
-            INSERT OR REPLACE INTO predictions
-            (timestamp, actual_price, predicted_price,
-             lr_prediction, ema_prediction, lstm_prediction,
-             error, abs_error, percentage_error, model_weights)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO predictions (
+                timestamp,
+                actual_price,
+                predicted_price,
+                lr_prediction,
+                ema_prediction,
+                lstm_prediction,
+                error,
+                abs_error,
+                percentage_error,
+                model_weights
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (timestamp)
+            DO UPDATE SET
+            actual_price = EXCLUDED.actual_price,
+            predicted_price = EXCLUDED.predicted_price,
+            lr_prediction = EXCLUDED.lr_prediction,
+            ema_prediction = EXCLUDED.ema_prediction,
+            lstm_prediction = EXCLUDED.lstm_prediction,
+            error = EXCLUDED.error,
+            abs_error = EXCLUDED.abs_error,
+            percentage_error = EXCLUDED.percentage_error,
+            model_weights = EXCLUDED.model_weights;
         ''', (
             ts, actual, round(final, 2),
             round(lr_pred, 2), round(ema_pred, 2), round(lstm_pred, 2),
             round(error, 2), round(abs_error, 2), round(pct_error, 4),
-            json.dumps(weights)
+            Json(weights)
         ))
 
+    c.close()
     conn.commit()
     conn.close()
 
@@ -299,7 +296,7 @@ def run_predictions():
 # STARTUP
 # ─────────────────────────────────────────────────────
 
-init_db()
+
 
 # ─────────────────────────────────────────────────────
 # API ENDPOINTS
@@ -311,7 +308,10 @@ def root():
 
 @app.get("/health")
 def health():
-    return {"status": "healthy", "db": DB_PATH}
+    return {
+    "status": "healthy",
+    "database": "Supabase PostgreSQL"
+}
 
 @app.get("/prices")
 def get_prices(limit: int = 100):
@@ -323,7 +323,7 @@ def get_prices(limit: int = 100):
             SELECT timestamp, actual_price, predicted_price,
                    lr_prediction, ema_prediction, lstm_prediction,
                    error, model_weights
-            FROM predictions ORDER BY timestamp DESC LIMIT ?
+            FROM predictions ORDER BY timestamp DESC LIMIT %s
         ''', (limit,))
         rows = c.fetchall()
         conn.close()

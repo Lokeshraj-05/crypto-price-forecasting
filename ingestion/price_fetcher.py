@@ -1,36 +1,51 @@
 import json
-import sqlite3
 import time
+import psycopg2
+from dotenv import load_dotenv
 from datetime import datetime
 from requests import Session
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from apscheduler.schedulers.blocking import BlockingScheduler
-
 import os
+from pathlib import Path
 
+load_dotenv(Path(__file__).resolve().parent.parent / "backend" / ".env")
+
+DB_HOST = os.getenv("DB_HOST")
+DB_PORT = os.getenv("DB_PORT")
+DB_NAME = os.getenv("DB_NAME")
+DB_USER = os.getenv("DB_USER")
+DB_PASSWORD = os.getenv("DB_PASSWORD")
 CMC_API_KEY = os.getenv("CMC_API_KEY")
-BASE_DIR = os.path.dirname(
-    os.path.dirname(os.path.abspath(__file__))
-)
 
-DB_PATH = os.path.join(BASE_DIR, "crypto_data.db")
+def get_db_connection():
+    return psycopg2.connect(
+        host=DB_HOST,
+        port=DB_PORT,
+        database=DB_NAME,
+        user=DB_USER,
+        password=DB_PASSWORD
+    )
 
 def init_db():
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute('''
+
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS raw_prices (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp TEXT NOT NULL,
-            price REAL NOT NULL,
-            volume_24h REAL,
-            market_cap REAL,
-            percent_change_1h REAL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
+            id BIGSERIAL PRIMARY KEY,
+            timestamp TIMESTAMPTZ NOT NULL,
+            price DOUBLE PRECISION NOT NULL,
+            volume_24h DOUBLE PRECISION,
+            market_cap DOUBLE PRECISION,
+            percent_change_1h DOUBLE PRECISION,
+            created_at TIMESTAMPTZ DEFAULT NOW()
+        );
+    """)
+
     conn.commit()
+    cursor.close()
     conn.close()
 
 def get_session_with_retry():
@@ -69,16 +84,26 @@ def fetch_and_store():
             'percent_change_1h': btc_data['quote']['USD']['percent_change_1h']
         }
         
-        conn = sqlite3.connect(DB_PATH)
+        conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute('''
-            INSERT INTO raw_prices (timestamp, price, volume_24h, market_cap, percent_change_1h)
-            VALUES (?, ?, ?, ?, ?)
-        ''', (price_data['timestamp'], price_data['price'], price_data['volume_24h'],
-              price_data['market_cap'], price_data['percent_change_1h']))
+
+        cursor.execute("""
+            INSERT INTO raw_prices
+            (timestamp, price, volume_24h, market_cap, percent_change_1h)
+            VALUES (%s, %s, %s, %s, %s)
+        """, (
+                price_data["timestamp"],
+                price_data["price"],
+                price_data["volume_24h"],
+                price_data["market_cap"],
+                price_data["percent_change_1h"]
+        ))
+
         conn.commit()
+        cursor.close()
         conn.close()
-        print(f"Stored in SQLite: BTC price ${price_data['price']:.2f}")
+        
+        print(f"Stored in Supabase: BTC price ${price_data['price']:.2f}")
     
     except Exception as e:
         print(f"Error: {str(e)}")
