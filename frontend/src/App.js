@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import PriceChart from './components/PriceChart';
 import MetricsCard from './components/MetricsCard';
@@ -16,7 +16,7 @@ function App() {
   const [refreshing, setRefreshing] = useState(false);
   const API = process.env.REACT_APP_API_URL || "http://localhost:8000";
 
-  const fetchData = async (manual = false) => {
+  const fetchData = useCallback (async (manual = false) => {
   if (manual) setRefreshing(true);
 
   try {
@@ -37,13 +37,14 @@ function App() {
   } finally {
     setRefreshing(false);
   }
-};
+},[API]);
 
   useEffect(() => {
-    fetchData();
-    const interval = setInterval(fetchData, 300000);
-    return () => clearInterval(interval);
-  }, []);
+  fetchData();
+  const interval = setInterval(() => fetchData(), 300000);
+
+  return () => clearInterval(interval);
+}, [fetchData]);
 
   if (loading) {
     return (
