@@ -10,7 +10,12 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 import os
 from pathlib import Path
 
-load_dotenv(Path(__file__).resolve().parent.parent / "backend" / ".env")
+env_path = Path(__file__).resolve().parent.parent / "backend" / ".env"
+
+if env_path.exists():
+    load_dotenv(env_path)
+else:
+    load_dotenv()
 
 DB_HOST = os.getenv("DB_HOST")
 DB_PORT = os.getenv("DB_PORT")
@@ -110,8 +115,4 @@ def fetch_and_store():
 
 if __name__ == "__main__":
     init_db()
-    scheduler = BlockingScheduler()
-    scheduler.add_job(fetch_and_store, 'interval', minutes=5)
-    print("Starting crypto price ingestion service (every 5 minutes)...")
-    fetch_and_store()  # Run immediately
-    scheduler.start()
+    fetch_and_store()
